@@ -2,7 +2,7 @@
 import chromadb
 from sentence_transformers import SentenceTransformer
 import os
-from typing import List
+from typing import List, Dict
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -39,97 +39,90 @@ class SentenceTransformerChromaEmbeddingFunction:
 
 class DocumentRag:
     def __init__(self, collection_name: str = "document_chunks"):
-        self.client = chromadb.Client()
-        self.embedding_function_instance = SentenceTransformerChromaEmbeddingFunction()
-        print("Sentence Transformer Embedding Function Wrapper initialized.")
-
-        self.collection = self.client.get_or_create_collection(
-            name=collection_name,
-            embedding_function=self.embedding_function_instance
-        )
-        print(f"ChromaDB collection '{collection_name}' initialized with Sentence Transformer embeddings.")
-
-    def add_documents(self, texts: list[str], metadatas: list[dict] = None) -> None:
         """
-        Adds text chunks and their embeddings to the ChromaDB collection.
+        Initializes the ChromaDB client and collection.
+        """
+        self.client = chromadb.Client() # Initializes a local client
+        self.embedding_function = SentenceTransformerChromaEmbeddingFunction()
+        self.collection_name = collection_name
+        self.collection = self.client.get_or_create_collection(
+            name=self.collection_name,
+            embedding_function=self.embedding_function # Pass the instance here
+        )
+        print(f"ChromaDB collection '{self.collection_name}' initialized with Sentence Transformer embeddings.")
+
+    def add_documents(self, texts: List[str], metadatas: List[Dict] = None) -> None:
+        """
+        Adds text documents to the ChromaDB collection.
 
         Args:
-            texts (list[str]): A list of text chunks to add.
-            metadatas (list[dict], optional): A list of metadata dictionaries,
-                                               one for each text chunk.
-                                               Defaults to None.
+            texts (List[str]): A list of text strings to add.
+            metadatas (List[Dict], optional): A list of metadata dictionaries,
+                                               one for each text. Defaults to None.
         """
         if not texts:
-            print("No texts provided to add.")
+            print("No texts provided to add to ChromaDB.")
             return
 
-        ids = [f"doc_{i}" for i in range(len(texts))]
+        # ChromaDB requires unique IDs for each document
+        ids = [f"chunk_{i}" for i in range(len(texts))]
 
-        # Ensure metadatas is a list of dictionaries with the same length as texts
-        # and that each dictionary is not empty.
-        processed_metadatas = []
+        # Ensure metadatas list matches the texts list length
         if metadatas is None:
-            # Create default metadata for each chunk
-            processed_metadatas = [{"source": "uploaded_document"} for _ in range(len(texts))]
+            metadatas = [{"source": "uploaded_document"} for _ in texts]
         elif len(metadatas) != len(texts):
-            print(f"Warning: Length of provided metadatas ({len(metadatas)}) does not match length of texts ({len(texts)}). Defaulting to basic metadata.")
-            processed_metadatas = [{"source": "uploaded_document"} for _ in range(len(texts))]
-        else:
-            # Use provided metadatas, but ensure each is a non-empty dict
-            for i, meta in enumerate(metadatas):
-                if not isinstance(meta, dict) or not meta: # Check if not a dict or if empty
-                    processed_metadatas.append({"source": "uploaded_document", "original_index": i})
-                else:
-                    processed_metadatas.append(meta)
+            raise ValueError("Length of metadatas must match length of texts.")
 
         try:
             self.collection.add(
                 documents=texts,
-                metadatas=processed_metadatas,
+                metadatas=metadatas, # metadatas should be a list of dicts
                 ids=ids
             )
             print(f"Added {len(texts)} documents to ChromaDB.")
         except Exception as e:
             print(f"Error adding documents to ChromaDB: {e}")
 
-    def query_documents(self, query_text: str, n_results: int = 5) -> list[str]:
+    def query_documents(self, query_text: str, n_results: int = 1) -> List[str]:
         """
-        Queries the ChromaDB collection for relevant text chunks.
+        Queries the ChromaDB collection for relevant documents.
 
         Args:
             query_text (str): The query string.
-            n_results (int): The number of top relevant results to retrieve.
+            n_results (int): The number of most relevant results to return.
 
         Returns:
-            list[str]: A list of relevant text chunks.
+            List[str]: A list of relevant document content strings.
         """
         if not query_text:
+            print("Query text is empty. Returning no results.")
             return []
-
         try:
             results = self.collection.query(
                 query_texts=[query_text],
                 n_results=n_results
             )
-            if results and results['documents']:
+            # results['documents'][0] contains the list of document contents
+            # Ensure it handles cases where no documents are returned
+            if results and results['documents'] and len(results['documents']) > 0:
                 return results['documents'][0]
-            return []
+            else:
+                return []
         except Exception as e:
             print(f"Error querying ChromaDB: {e}")
             return []
 
     def clear_collection(self):
         """
-        Clears all documents from the current collection.
-        Useful for resetting the database for new document uploads.
+        Deletes the entire collection. Useful for resetting the database.
         """
         try:
-            self.client.delete_collection(name=self.collection.name)
+            self.client.delete_collection(name=self.collection_name)
             self.collection = self.client.get_or_create_collection(
-                name=self.collection.name,
-                embedding_function=self.embedding_function_instance
+                name=self.collection_name,
+                embedding_function=self.embedding_function
             )
-            print(f"ChromaDB collection '{self.collection.name}' cleared and re-initialized.")
+            print(f"ChromaDB collection '{self.collection_name}' cleared and re-initialized.")
         except Exception as e:
             print(f"Error clearing ChromaDB collection: {e}")
 
@@ -150,7 +143,7 @@ if __name__ == '__main__':
     print("Relevant chunks found:")
     for chunk in relevant_chunks:
         print(f"- {chunk}")
-    query_2 = "What are vector databases used for?"
+    query_2 = "What are vector databases used for??"
     print(f"\nQuerying for: '{query_2}'")
     relevant_chunks_2 = rag.query_documents(query_2, n_results=1)
     print("Relevant chunks found:")
@@ -160,6 +153,4 @@ if __name__ == '__main__':
     empty_query_results = rag.query_documents("")
     print(f"Results for empty query: {empty_query_results}")
     rag.clear_collection()
-    print("\nAfter clearing, querying again:")
-    cleared_results = rag.query_documents(query)
-    print(f"Results after clear: {cleared_results}")
+

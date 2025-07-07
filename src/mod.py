@@ -18,7 +18,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # Set the path to the Tesseract executable if it's not in your PATH
 # For Windows, uncomment and modify the line below:
-# pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+# pytesseract.pytesseract.tesseract_cmd = r'C:\\Program Files\\Tesseract-OCR\\tesseract.exe'
 # Make sure to adjust the path to your Tesseract installation directory.
 
 def extract_text_from_pdf(file_path: str) -> str:
@@ -37,52 +37,31 @@ def extract_text_from_pdf(file_path: str) -> str:
     try:
         with open(file_path, "rb") as file:
             reader = PdfReader(file)
-            num_pages = len(reader.pages)
-            logging.info(f"Attempting to extract text from {num_pages} pages of PDF: {file_path}")
-
-            for i, page in enumerate(reader.pages):
-                # Try PyPDF2 extraction first
+            for page in reader.pages:
                 page_text = page.extract_text()
-                if page_text and page_text.strip():
-                    text += page_text + "\n"
+                if page_text:
+                    text += page_text
                     pypdf2_extracted_any_text = True
-                    logging.debug(f"Extracted text from page {i+1} using PyPDF2.")
-                else:
-                    logging.warning(f"No text extracted from page {i+1} using PyPDF2. This page might be image-based or empty.")
-            
-            # If PyPDF2 extracted nothing at all, try full OCR fallback
-            if not pypdf2_extracted_any_text and PDF2IMAGE_AVAILABLE:
-                logging.info("PyPDF2 extracted no text. Attempting full PDF OCR using pdf2image and Tesseract.")
-                ocr_full_text = ""
-                try:
-                    images = convert_from_path(file_path)
-                    if images:
-                        for img_idx, image in enumerate(images):
-                            page_ocr_text = pytesseract.image_to_string(image)
-                            if page_ocr_text.strip():
-                                ocr_full_text += page_ocr_text + "\n"
-                                logging.info(f"OCR extracted text from PDF page {img_idx+1}.")
-                            else:
-                                logging.warning(f"OCR failed for PDF page {img_idx+1}.")
-                        if ocr_full_text.strip():
-                            text = ocr_full_text
-                            logging.info("Successfully extracted text from PDF using OCR fallback.")
-                        else:
-                            logging.error("OCR fallback also failed to extract any text from the PDF.")
-                    else:
-                        logging.error("pdf2image could not convert PDF to images for OCR.")
-                except Exception as full_ocr_e:
-                    logging.error(f"Error during full PDF OCR fallback: {full_ocr_e}", exc_info=True)
-            elif not pypdf2_extracted_any_text and not PDF2IMAGE_AVAILABLE:
-                logging.warning("PDF2IMAGE is not available. Cannot perform full PDF OCR. Please install `pip install pdf2image` and Poppler.")
-
     except Exception as e:
-        logging.error(f"Error opening or reading PDF '{file_path}': {e}", exc_info=True)
-        return ""
-    
-    if not text.strip():
-        logging.error("No significant text could be extracted from the PDF using either PyPDF2 or OCR fallback. The document might be unreadable.")
-        return ""
+        logging.error(f"Error reading PDF with PyPDF2: {e}")
+        pypdf2_extracted_any_text = False # Reset if error occurred during PyPDF2 extraction
+
+    # If PyPDF2 extracted no text or failed, try OCR with pytesseract
+    if not pypdf2_extracted_any_text and PDF2IMAGE_AVAILABLE:
+        logging.info(f"PyPDF2 extracted no text or failed for {file_path}. Attempting OCR...")
+        try:
+            # Convert PDF pages to images
+            images = convert_from_path(file_path)
+            for i, image in enumerate(images):
+                # Use Tesseract to do OCR on the image
+                page_text = pytesseract.image_to_string(image)
+                text += page_text
+                logging.info(f"OCR processed page {i+1}")
+        except Exception as e:
+            logging.error(f"Error during OCR extraction with pdf2image/pytesseract: {e}")
+            text = "" # Clear text if OCR also fails, to indicate no text could be extracted
+    elif not PDF2IMAGE_AVAILABLE:
+        logging.warning("pdf2image is not available, skipping OCR for PDF.")
 
     return text
 
@@ -99,33 +78,30 @@ def extract_text_from_txt(file_path: str) -> str:
     try:
         with open(file_path, "r", encoding="utf-8") as file:
             text = file.read()
-            if not text.strip():
-                logging.warning(f"TXT file '{file_path}' is empty or contains only whitespace.")
+        logging.info(f"Successfully read {len(text)} characters from TXT file: {file_path}")
+        return text
     except Exception as e:
-        logging.error(f"Error extracting text from TXT '{file_path}': {e}", exc_info=True)
+        logging.error(f"Error reading TXT file {file_path}: {e}")
         return ""
-    return text
 
-def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> list[str]:
+def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]:
     """
-    Splits a long text into smaller chunks with optional overlap.
+    Splits text into chunks of a specified size with overlap.
 
     Args:
         text (str): The input text to chunk.
-        chunk_size (int): The maximum size of each chunk.
+        chunk_size (int): The desired size of each chunk.
         overlap (int): The number of characters to overlap between chunks.
 
     Returns:
         list[str]: A list of text chunks.
     """
     if not text:
-        logging.warning("No text provided to chunk.")
         return []
 
+    # Replace multiple newlines with single spaces to treat paragraphs as continuous text
+    # This helps in creating more coherent chunks across paragraph breaks
     text = re.sub(r'\s+', ' ', text).strip()
-    if not text:
-        logging.warning("Text became empty after cleaning whitespace. No chunks generated.")
-        return []
 
     chunks = []
     start = 0
@@ -134,33 +110,27 @@ def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> list[st
         chunk = text[start:end]
         chunks.append(chunk)
         start += (chunk_size - overlap)
-        if start >= len(text) and chunks:
+        if start >= len(text) and end < len(text): # Ensure the very last part is also added if it's smaller than chunk_size
+            chunks.append(text[end:])
             break
-        if start < len(text) and start + (chunk_size - overlap) >= len(text) and len(text) > end:
-            if text[end:].strip():
-                chunks.append(text[end:])
-            break
-        
-    logging.info(f"Text chunked into {len(chunks)} chunks.")
     return chunks
 
 def process_document(file_path: str, file_type: str) -> list[str]:
     """
-    Extracts text from a document based on its type and chunks it.
+    Processes a document (PDF or TXT) to extract and chunk its text content.
 
     Args:
-        file_path (str): The path to the uploaded document.
-        file_type (str): The type of the file ('pdf' or 'txt' or 'plain').
+        file_path (str): The path to the document file.
+        file_type (str): The type of the file ('pdf' or 'txt').
 
     Returns:
-        list[str]: A list of processed text chunks.
+        list[str]: A list of text chunks from the document.
     """
-    text = ""
     logging.info(f"Starting document processing for file: {file_path}, type: {file_type}")
+    text = ""
     if file_type == "pdf":
         text = extract_text_from_pdf(file_path)
-    # Handle both 'txt' and 'plain' for text files
-    elif file_type == "txt" or file_type == "plain": # <--- FIXED THIS LINE
+    elif file_type == "txt": # Now explicitly handles 'txt' which will also cover 'plain' from main.py
         text = extract_text_from_txt(file_path)
     else:
         logging.error(f"Unsupported file type: {file_type}")
@@ -188,4 +158,4 @@ if __name__ == '__main__':
     print("\n--- Testing long text chunking ---")
     long_text_chunks = chunk_text(long_text, chunk_size=200, overlap=50)
     for i, chunk in enumerate(long_text_chunks):
-        print(f"Chunk {i+1} (length {len(chunk)}): {chunk[:50]}...")
+        print(f"Chunk {i+1}: {chunk}")

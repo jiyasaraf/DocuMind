@@ -23,11 +23,25 @@ st.markdown("Upload a document (PDF or TXT) to get started. Ask questions or cha
 uploaded_file = st.file_uploader("Upload your document (PDF or TXT)", type=["pdf", "txt"])
 
 if uploaded_file:
-    # Save uploaded file to a temporary location
-    with tempfile.NamedTemporaryFile(delete=False, suffix=f".{uploaded_file.type.split('/')[-1]}") as tmp_file:
-        tmp_file.write(uploaded_file.getvalue())
-        file_path = tmp_file.name
-        file_type = uploaded_file.type.split('/')[-1] # 'pdf' or 'txt'
+    # Create a temporary file path and write the uploaded content to it
+    # Using tempfile.mkstemp to get a unique file path and handle
+    fd, temp_file_path = tempfile.mkstemp(suffix=f".{uploaded_file.type.split('/')[-1]}")
+    file_type = uploaded_file.type.split('/')[-1] # 'pdf' or 'txt' (or 'plain' for text files)
+    
+    # Adjust file_type for plain text files to be consistently 'txt'
+    if file_type == 'plain':
+        file_type = 'txt'
+
+    try:
+        with os.fdopen(fd, 'wb') as tmp_file:
+            tmp_file.write(uploaded_file.getvalue())
+        file_path = temp_file_path # Use the path from mkstemp
+    except Exception as e:
+        st.error(f"Error saving uploaded file: {e}")
+        # Clean up the created temporary file if saving fails
+        if os.path.exists(temp_file_path):
+            os.unlink(temp_file_path)
+        st.stop() # Stop execution if file saving fails
 
     st.success(f"Document '{uploaded_file.name}' uploaded successfully!")
 
@@ -50,7 +64,7 @@ if uploaded_file:
                 # Pass metadatas explicitly to satisfy ChromaDB's requirement
                 # Each chunk will have a default metadata {"source": "uploaded_document"}
                 metadatas = [{"source": "uploaded_document", "chunk_index": i} for i in range(len(processed_chunks))]
-                st.session_state.document_rag.add_documents(processed_chunks, metadatas=metadatas) # <--- UPDATED CALL
+                st.session_state.document_rag.add_documents(processed_chunks, metadatas=metadatas)
                 st.session_state.processed_document_chunks = processed_chunks
                 st.session_state.full_document_text = " ".join(processed_chunks) # Store full text for summary/challenge
                 st.success("Document processed and embeddings stored!")
@@ -70,7 +84,8 @@ if uploaded_file:
             st.info(st.session_state.summary)
 
     # Clean up the temporary file
-    os.unlink(file_path)
+    if os.path.exists(file_path):
+        os.unlink(file_path)
 
     # Interaction Modes
     if st.session_state.processed_document_chunks:
@@ -95,9 +110,9 @@ if uploaded_file:
                     
                     st.markdown(f"**Answer:** {answer}")
                     if justification:
-                        st.markdown(f"**Justification:** __{justification}__")
+                        st.markdown(f"**Justification (Reference text from the document):** __{justification}__")
                     else:
-                        st.markdown(f"**Justification:** __{'No specific justification found in the AI response.'}__")
+                        st.markdown(f"**Justification (Reference text from the document):** __{'No specific justification found in the AI response.'}__")
 
         elif mode == "Challenge Me":
             st.markdown("---")
@@ -106,8 +121,8 @@ if uploaded_file:
             # Initialize challenge_questions and user_answers if not present or empty
             if 'challenge_questions' not in st.session_state or not st.session_state.challenge_questions:
                 st.session_state.challenge_questions = []
-                st.session_state.user_answers = []
-                st.session_state.evaluation_results = []
+                st.session_state.user_answers = [""] * 3 # Initialize with 3 empty answers for 3 questions
+                st.session_state.evaluation_results = [""] * 3 # Initialize with 3 empty evaluation results
 
             if st.button("Generate New Challenge Questions"):
                 with st.spinner("Generating challenge questions..."):
@@ -126,12 +141,19 @@ if uploaded_file:
                     
                     if st.button(f"Evaluate Answer for Q{i+1}", key=f"evaluate_btn_{i}"):
                         with st.spinner("Evaluating your answer..."):
-                            is_correct, justification = evaluate_user_answer(
+                            is_correct, justification, score, desired_answer_snippet = evaluate_user_answer(
                                 q, 
                                 st.session_state.user_answers[i], 
                                 st.session_state.full_document_text
                             )
-                            evaluation_feedback = f"**Evaluation:** {'Correct' if is_correct else 'Incorrect'}\n**Justification:** {justification}"
+                            evaluation_feedback = (
+                                f"**Evaluation:** {'Correct' if is_correct else 'Incorrect'}\n"
+                                f"**Score:** {score}/10\n"
+                                f"**Justification:** {justification}\n"
+                            )
+                            if desired_answer_snippet and desired_answer_snippet != "N/A":
+                                evaluation_feedback += f"**Desired Answer Snippet:** {desired_answer_snippet}"
+                            
                             st.session_state.evaluation_results[i] = evaluation_feedback
                             st.success("Evaluation complete!")
                     
