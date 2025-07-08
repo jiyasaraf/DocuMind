@@ -147,78 +147,10 @@ This will open the application in your web browser.
 └── local_chroma_db/            # (Automatically created) Directory for ChromaDB persistence
 ```
 
-## Contributing
-
-We welcome contributions to the Smart Document Assistant! Here's how you can help make this project better:
-
-### Getting Started
-
-1. **Fork the repository** and clone it to your local machine
-2. **Create a new branch** for your feature or bug fix:
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
-3. **Set up the development environment** following the installation instructions above
-
-### How to Contribute
-
-#### 🐛 Reporting Bugs
-- Check if the issue already exists in the [Issues](https://github.com/your-username/smart-document-assistant/issues) section
-- If not, create a new issue with:
-  - Clear description of the problem
-  - Steps to reproduce
-  - Expected vs actual behavior
-  - Your environment details (OS, Python version, etc.)
-
-#### 💡 Suggesting Features
-- Open an issue with the `enhancement` label
-- Describe the feature and its benefits
-- Provide examples or mockups if possible
-
-#### 🔧 Code Contributions
-
-**Areas where we need help:**
-- Adding support for more document formats (Word, PowerPoint, etc.)
-- Improving OCR accuracy and performance
-- Enhancing the UI/UX
-- Adding more embedding models
-- Performance optimizations
-- Writing tests
-- Documentation improvements
-
-**Before submitting a pull request:**
-1. Ensure your code follows Python best practices (PEP 8)
-2. Test your changes thoroughly
-3. Update documentation if needed
-4. Make sure your code doesn't break existing functionality
-
-### Pull Request Process
-
-1. **Update documentation** for any new features
-2. **Add tests** for new functionality when possible
-3. **Ensure all tests pass** (if test suite exists)
-4. **Write clear commit messages** following conventional commits format:
-   ```
-   feat: add support for Word documents
-   fix: resolve PDF parsing issue with special characters
-   docs: update installation instructions
-   ```
-5. **Submit your pull request** with:
-   - Clear title and description
-   - Reference to related issues
-   - Screenshots/GIFs for UI changes
-
-### Development Guidelines
-
-- **Code Style**: Follow PEP 8 guidelines
-- **Documentation**: Use docstrings for functions and classes
-- **Error Handling**: Implement proper error handling and logging
-- **Dependencies**: Avoid adding unnecessary dependencies
-- **Environment**: Test in both development and production environments
 
 ### Need Help?
 
-- Check the [Issues](https://github.com/your-username/smart-document-assistant/issues) section for existing discussions
+- Check the [Issues](https://github.com/jiyasaraf/smart-document-assistant/issues) section for existing discussions
 - Feel free to ask questions in issue comments
 - For major changes, consider opening an issue first to discuss the approach
 
