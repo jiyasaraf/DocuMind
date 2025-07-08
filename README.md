@@ -222,13 +222,6 @@ We welcome contributions to the Smart Document Assistant! Here's how you can hel
 - Feel free to ask questions in issue comments
 - For major changes, consider opening an issue first to discuss the approach
 
-### Code of Conduct
-
-Please be respectful and constructive in all interactions. We're building this together! 🤝
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgements
 
