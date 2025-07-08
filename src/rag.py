@@ -38,13 +38,17 @@ class SentenceTransformerChromaEmbeddingFunction:
         return self._model_name
 
 class DocumentRag:
-    def __init__(self, collection_name: str = "document_chunks"):
+    def __init__(self, collection_name: str = "document_chunks", persist_directory: str = "./chroma_db"):
         """
         Initializes the ChromaDB client and collection.
+        Uses PersistentClient for local, file-based storage.
         """
-        self.client = chromadb.Client() # Initializes a local client
+        # Initialize PersistentClient with a specified directory
+        self.client = chromadb.PersistentClient(path=persist_directory)
         self.embedding_function = SentenceTransformerChromaEmbeddingFunction()
         self.collection_name = collection_name
+        
+        # Get or create the collection
         self.collection = self.client.get_or_create_collection(
             name=self.collection_name,
             embedding_function=self.embedding_function # Pass the instance here
@@ -115,9 +119,13 @@ class DocumentRag:
     def clear_collection(self):
         """
         Deletes the entire collection. Useful for resetting the database.
+        Note: For PersistentClient, this removes the collection from the client's view.
+        The underlying files will remain until the persist_directory is manually cleared.
         """
         try:
+            # Delete the collection
             self.client.delete_collection(name=self.collection_name)
+            # Re-create the collection to ensure it's empty and ready for new data
             self.collection = self.client.get_or_create_collection(
                 name=self.collection_name,
                 embedding_function=self.embedding_function
@@ -127,7 +135,8 @@ class DocumentRag:
             print(f"Error clearing ChromaDB collection: {e}")
 
 if __name__ == '__main__':
-    rag = DocumentRag(collection_name="test_document_chunks_st")
+    # When running this directly, it will create a 'test_chroma_db' directory
+    rag = DocumentRag(collection_name="test_document_chunks_st", persist_directory="./test_chroma_db")
     rag.clear_collection()
     dummy_texts = [
         "The quick brown fox jumps over the lazy dog.",
@@ -153,4 +162,8 @@ if __name__ == '__main__':
     empty_query_results = rag.query_documents("")
     print(f"Results for empty query: {empty_query_results}")
     rag.clear_collection()
+    # Clean up the test directory after execution
+    import shutil
+    if os.path.exists("./test_chroma_db"):
+        shutil.rmtree("./test_chroma_db")
 

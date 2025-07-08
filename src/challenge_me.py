@@ -42,171 +42,189 @@ def generate_challenge_questions(document_text: str, num_questions: int = 3) -> 
 
     Questions:
     1.
+    2.
+    3.
+    ...
     """
+
     try:
         response = model.generate_content(
             prompt,
-            generation_config=genai.types.GenerationConfig(
-                temperature=0.7, # Higher temperature for more creative questions
-                max_output_tokens=250 # Reduced tokens for conciseness
-            )
+            generation_config=genai.types.GenerationConfig(max_output_tokens=300)
         )
-        questions_raw = response.text.strip().split('\n')
+        questions_raw = response.text.strip()
+        # Parse questions, handling various numbering/bullet formats
+        questions = re.findall(r"^\s*\d+\.\s*(.*)", questions_raw, re.MULTILINE)
+        if not questions:
+            # Fallback for other formats like bullet points or just lines
+            questions = [q.strip() for q in questions_raw.split('\n') if q.strip() and not q.strip().startswith(('Answer', 'Justification'))]
         
-        parsed_questions = []
-        for q in questions_raw:
-            # Use a more robust regex to capture the question text
-            match = re.match(r'^\s*\d+\.?\s*(.*)', q.strip())
-            if match:
-                parsed_questions.append(match.group(1).strip())
-        
-        return parsed_questions[:num_questions]
-
+        return questions[:num_questions] # Ensure only requested number of questions are returned
     except Exception as e:
         print(f"Error generating challenge questions with Gemini: {e}")
-        return ["Could not generate challenge questions."]
+        return []
 
 def evaluate_user_answer(
     question: str,
     user_answer: str,
-    document_text: str
+    document_text: str,
+    max_output_tokens: int = 500
 ) -> Tuple[bool, str, int, str]:
     """
-    Evaluates a user's answer to a challenge question based on the document text,
-    providing a score, detailed justification, and a desired answer snippet if applicable.
+    Evaluates a user's answer against the document context using the Gemini API.
 
     Args:
-        question (str): The challenge question.
-        user_answer (str): The user's answer.
-        document_text (str): The full text of the document for grounding evaluation.
+        question (str): The question asked.
+        user_answer (str): The user's provided answer.
+        document_text (str): The full text of the document for grounding.
+        max_output_tokens (int): Maximum number of tokens for the generated evaluation.
 
     Returns:
         Tuple[bool, str, int, str]: A tuple containing:
-                                    - is_correct (True/False)
-                                    - justification (str)
-                                    - score (int, out of 10)
-                                    - desired_answer_snippet (str, or "N/A")
+                                     - is_correct (bool): True if the answer is largely correct.
+                                     - justification (str): Explanation for the evaluation and score.
+                                     - score (int): A score from 0-10.
+                                     - desired_answer_snippet (str): A snippet from the document
+                                                                     containing the correct answer, or "N/A".
     """
-    if not user_answer or not user_answer.strip():
-        return False, "Please provide an answer to evaluate.", 0, "N/A"
+    if not document_text:
+        return False, "Evaluation cannot be performed: document context is missing.", 0, "N/A"
+    if not user_answer.strip():
+        return False, "No answer provided by the user.", 0, "N/A"
 
     prompt = f"""
-    You are an AI evaluator. Your task is to assess the 'User Answer' to the 'Question' based *only* on the 'Document Content'.
+    You are an AI assistant tasked with evaluating a user's answer to a question based on a provided document.
+    Your evaluation should be fair, comprehensive, and grounded strictly in the document content.
 
-    Provide the following:
-    1.  **Evaluation Status:** State 'Correct' or 'Incorrect'.
-    2.  **Score:** Assign a score from 0 to 10.
-        * 10: Perfect answer, fully accurate, complete, and directly addresses the question based on the document.
-        * 7-9: Mostly correct, but may lack minor details, depth, or specific connections to the document, or could be phrased more precisely.
-        * 4-6: Partially correct, contains some relevant information but is significantly incomplete, contains inaccuracies, or misses the main point of the question.
-        * 0-3: Largely incorrect, irrelevant, nonsensical, or demonstrates a severe misunderstanding of the question or document content.
-    3.  **Justification:** Explain clearly and specifically why the answer received its score. Detail what aspects were correct, what was incorrect, and what relevant information was missing. Reference the document content explicitly where applicable to support your evaluation.
-    4.  **Desired Answer Snippet (if applicable):** If the user's answer is not perfect (score < 10), provide a concise snippet or synthesis of the *missing or incorrectly addressed information* from the 'Document Content' that would lead to a perfect score. This should complement the user's answer to form a complete correct response. If the answer is perfect, state "N/A".
+    **Evaluation Criteria:**
+    1.  **Accuracy & Relevance (60%)**: How accurate is the user's answer based *only* on the document? Is it directly relevant to the question and the document's content? Irrelevant or hallucinated answers should receive a very low score (0-2).
+    2.  **Completeness (20%)**: Does the user's answer cover all key aspects of the question as presented in the document?
+    3.  **Clarity & Conciseness (10%)**: Is the answer clear, easy to understand, and to the point?
+    4.  **Minimal Hallucination (10%)**: Does the answer avoid making up information not present in the document?
 
-    Document Content:
+    **Instructions:**
+    -   First, determine the correct answer to the question based *only* on the `Document` provided.
+    -   Then, compare the `User Answer` to the correct answer derived from the `Document`.
+    -   Provide an `Evaluation Status` (Correct, Incorrect, Partially Correct).
+    -   Assign a `Score` from 0 to 10 based on the criteria. A score of 0 should be given for completely irrelevant, nonsensical, or hallucinated answers.
+    -   Provide a detailed `Justification` for the score, explaining why the user's answer was correct, incorrect, or partially correct, citing specifics from the document.
+    -   Provide a `Desired Answer Snippet` from the document that best answers the question. If the document does not contain the answer, state "N/A".
+
+    **Question:** {question}
+
+    **User Answer:** {user_answer}
+
+    **Document:**
     {document_text}
 
-    Question: {question}
-    User Answer: {user_answer}
-
-    Evaluation:
+    ---
+    **Evaluation Format:**
+    Evaluation Status: [Correct/Incorrect/Partially Correct]
+    Score: [0-10]/10
+    Justification: [Detailed explanation based on criteria and document]
+    Desired Answer Snippet (if applicable): [Relevant snippet from document or "N/A"]
     """
 
     try:
         response = model.generate_content(
             prompt,
-            generation_config=genai.types.GenerationConfig(
-                temperature=0.1, # Low temperature for factual evaluation
-                max_output_tokens=500 # Increased tokens for more detailed justification and snippet
-            )
+            generation_config=genai.types.GenerationConfig(max_output_tokens=max_output_tokens)
         )
-        evaluation_text = response.text.strip()
+        response_text = response.text.strip()
 
-        # Initialize default values
-        is_correct = False
-        score = 0
-        justification = "Could not parse justification."
-        desired_answer_snippet = "N/A"
+        # Extract information using regex
+        status_match = re.search(r"Evaluation Status: (.*)", response_text)
+        score_match = re.search(r"Score: (\d+)/10", response_text)
+        justification_match = re.search(r"Justification: (.*?)(?=\nDesired Answer Snippet:|$)", response_text, re.DOTALL)
+        snippet_match = re.search(r"Desired Answer Snippet \(if applicable\): (.*)", response_text, re.DOTALL)
 
-        # Parse Evaluation Status
-        status_match = re.search(r'\*\*Evaluation Status:\*\*\s*(Correct|Incorrect)', evaluation_text, re.IGNORECASE)
-        if status_match:
-            is_correct = (status_match.group(1).lower() == 'correct')
+        # Stricter interpretation of 'is_correct'
+        status_text = status_match.group(1).lower() if status_match else ""
+        score = int(score_match.group(1)) if score_match else 0
+        
+        # An answer is considered "correct" only if the status explicitly says so AND the score is reasonably high (e.g., >= 7)
+        is_correct = ("correct" in status_text and score >= 7) 
 
-        # Parse Score
-        score_match = re.search(r'\*\*Score:\*\*\s*(\d+)', evaluation_text) # Simplified regex for score
-        if score_match:
-            score = int(score_match.group(1))
-
-        # Parse Justification and Desired Answer Snippet
-        # Use a regex to find the sections
-        justification_match = re.search(r'\*\*Justification:\*\*(.*?)(?=\*\*Desired Answer Snippet:|\Z)', evaluation_text, re.DOTALL)
-        if justification_match:
-            justification = justification_match.group(1).strip()
-
-        snippet_match = re.search(r'\*\*Desired Answer Snippet:\*\*(.*)', evaluation_text, re.DOTALL)
-        if snippet_match:
-            desired_answer_snippet = snippet_match.group(1).strip()
-            if desired_answer_snippet.lower() == "n/a":
-                desired_answer_snippet = "N/A" # Ensure consistent "N/A" for perfect answers
+        justification = justification_match.group(1).strip() if justification_match else "No justification provided."
+        desired_answer_snippet = snippet_match.group(1).strip() if snippet_match else "N/A"
 
         return is_correct, justification, score, desired_answer_snippet
 
     except Exception as e:
         print(f"Error evaluating user answer with Gemini: {e}")
-        return False, f"An error occurred during evaluation: {e}", 0, "N/A"
+        return False, "An error occurred during evaluation.", 0, "N/A"
 
 if __name__ == '__main__':
-    print("--- Testing Challenge Me Mode ---")
     dummy_document_text = """
-    The theory of relativity, developed by Albert Einstein, comprises two interrelated theories: special relativity and general relativity. Special relativity applies to all physical phenomena in the absence of gravity. General relativity explains the law of gravitation and its relation to other forces of nature; it uses the concept of spacetime curvature. One of the key implications of special relativity is the mass-energy equivalence formula E=mc².
+    Special relativity is a theory of space and time. It was proposed by Albert Einstein in 1905.
+    It deals with the relationship between space and time, and how they are affected by motion.
+    Key concepts include the constancy of the speed of light for all inertial observers and the relativity of simultaneity.
+    It does not incorporate gravity, which is addressed by general relativity.
+    The theory has profound implications for mass-energy equivalence, famously expressed as E=mc².
     """
-    print("\n--- Generating Challenge Questions ---")
-    questions = generate_challenge_questions(dummy_document_text, num_questions=2)
-    for i, q in enumerate(questions):
-        print(f"Question {i+1}: {q}")
-    if questions:
-        test_question = questions[0]
-        print(f"\n--- Evaluating User Answer for: '{test_question}' ---\n")
-        
-        # Test case 1: Correct answer
-        correct_answer = "Special relativity deals with physics without gravity, while general relativity explains gravity using spacetime curvature."
-        is_correct, justification, score, snippet = evaluate_user_answer(test_question, correct_answer, dummy_document_text)
-        print(f"User Answer (Correct): '{correct_answer}'")
-        print(f"Evaluation: {'Correct' if is_correct else 'Incorrect'}")
-        print(f"Score: {score}/10")
-        print(f"Justification: {justification}")
-        print(f"Desired Answer Snippet: {snippet}")
-        
-        print("\n" + "="*50 + "\n")
 
-        # Test case 2: Incorrect answer
-        incorrect_answer = "Einstein developed the theory of evolution."
-        is_correct, justification, score, snippet = evaluate_user_answer(test_question, incorrect_answer, dummy_document_text)
-        print(f"User Answer (Incorrect): '{incorrect_answer}'")
-        print(f"Evaluation: {'Correct' if is_correct else 'Incorrect'}")
-        print(f"Score: {score}/10")
-        print(f"Justification: {justification}")
-        print(f"Desired Answer Snippet: {snippet}")
+    test_question = "What are the key concepts of special relativity and what does it not incorporate?"
 
-        print("\n" + "="*50 + "\n")
+    print("--- Testing Answer Evaluation ---")
 
-        # Test case 3: Partially correct/incomplete answer
-        partial_answer = "Special relativity is about physics without gravity."
-        is_correct, justification, score, snippet = evaluate_user_answer(test_question, partial_answer, dummy_document_text)
-        print(f"User Answer (Partial): '{partial_answer}'")
-        print(f"Evaluation: {'Correct' if is_correct else 'Incorrect'}")
-        print(f"Score: {score}/10")
-        print(f"Justification: {justification}")
-        print(f"Desired Answer Snippet: {snippet}")
+    # Test case 1: Correct answer
+    correct_answer = "The key concepts are the constancy of the speed of light and the relativity of simultaneity. It does not incorporate gravity."
+    is_correct, justification, score, snippet = evaluate_user_answer(test_question, correct_answer, dummy_document_text)
+    print(f"User Answer (Correct): '{correct_answer}'")
+    print(f"Evaluation: {'Correct' if is_correct else 'Incorrect'}")
+    print(f"Score: {score}/10")
+    print(f"Justification: {justification}")
+    print(f"Desired Answer Snippet: {snippet}")
 
-        print("\n" + "="*50 + "\n")
+    print("\n" + "="*50 + "\n")
 
-        # Test case 4: Empty answer
-        empty_answer = ""
-        is_correct, justification, score, snippet = evaluate_user_answer(test_question, empty_answer, dummy_document_text)
-        print(f"User Answer (Empty): '{empty_answer}'")
-        print(f"Evaluation: {'Correct' if is_correct else 'Incorrect'}")
-        print(f"Score: {score}/10")
-        print(f"Justification: {justification}")
-        print(f"Desired Answer Snippet: {snippet}")
+    # Test case 2: Incorrect answer
+    incorrect_answer = "Special relativity is all about quantum mechanics and the theory of everything solution."
+    is_correct, justification, score, snippet = evaluate_user_answer(test_question, incorrect_answer, dummy_document_text)
+    print(f"User Answer (Incorrect): '{incorrect_answer}'")
+    print(f"Evaluation: {'Correct' if is_correct else 'Incorrect'}")
+    print(f"Score: {score}/10")
+    print(f"Justification: {justification}")
+    print(f"Desired Answer Snippet: {snippet}")
+
+    print("\n" + "="*50 + "\n")
+
+    # Test case 3: Partially correct/incomplete answer
+    partial_answer = "Special relativity is about physics without gravity."
+    is_correct, justification, score, snippet = evaluate_user_answer(test_question, partial_answer, dummy_document_text)
+    print(f"User Answer (Partial): '{partial_answer}'")
+    print(f"Evaluation: {'Correct' if is_correct else 'Incorrect'}")
+    print(f"Score: {score}/10")
+    print(f"Justification: {justification}")
+    print(f"Desired Answer Snippet: {snippet}")
+
+    print("\n" + "="*50 + "\n")
+
+    # Test case 4: Empty answer
+    empty_answer = ""
+    is_correct, justification, score, snippet = evaluate_user_answer(test_question, empty_answer, dummy_document_text)
+    print(f"User Answer (Empty): '{empty_answer}'")
+    print(f"Evaluation: {'Correct' if is_correct else 'Incorrect'}")
+    print(f"Score: {score}/10")
+    print(f"Justification: {justification}")
+    print(f"Desired Answer Snippet: {snippet}")
+
+    print("\n" + "="*50 + "\n")
+    
+    # Test case 5: Vague/Irrelevant answer (new test case)
+    vague_answer = "hethrre y345"
+    is_correct, justification, score, snippet = evaluate_user_answer(test_question, vague_answer, dummy_document_text)
+    print(f"User Answer (Vague): '{vague_answer}'")
+    print(f"Evaluation: {'Correct' if is_correct else 'Incorrect'}")
+    print(f"Score: {score}/10")
+    print(f"Justification: {justification}")
+    print(f"Desired Answer Snippet: {snippet}")
+
+    print("\n" + "="*50 + "\n")
+
+    # Test case 6: Generate challenge questions
+    print("--- Testing Question Generation ---")
+    generated_questions = generate_challenge_questions(dummy_document_text, num_questions=2)
+    print("Generated Questions:")
+    for i, q in enumerate(generated_questions):
+        print(f"{i+1}. {q}")

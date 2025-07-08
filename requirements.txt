@@ -1,0 +1,10 @@
+streamlit
+pypdf
+python-dotenv
+chromadb
+google-generativeai
+pytesseract
+Pillow
+pdf2image
+sentence-transformers
+einops

@@ -39,154 +39,141 @@ def generate_response_with_gemini(
     if not context_chunks:
         return "I cannot answer this question as no relevant context was found in the document.", ""
 
-    # Combine context chunks into a single string, labeling them for the model's reference
-    formatted_context = "\n\n".join([f"Document Chunk [{i+1}]: {chunk}" for i, chunk in enumerate(context_chunks)])
+    context_str = "\n".join(context_chunks)
 
-    # Construct the prompt for Gemini
-    # Emphasize grounding the answer in the provided context and providing the exact supporting text.
     prompt = f"""
-    You are an AI assistant designed to answer questions based *only* on the provided document chunks.
-    If the question cannot be answered from the context, state that you cannot answer it.
-    
-    Provide your Answer first. Ensure the Answer is concise and does NOT include any explicit references to document chunks or "new line" type phrases.
-    
-    Then, on a *separate new line*, precisely beginning with "Justification (Reference text from the document):", provide the *exact text snippets* from the Document Chunk(s) that directly support your answer. If multiple chunks support it, combine the relevant parts. **Do not just reference chunk numbers; provide the actual text.**
-
-    Document Chunks:
-    {formatted_context}
+    You are a helpful assistant. Answer the following question ONLY based on the provided context.
+    If the answer cannot be found in the context, respond with "I cannot answer this question based on the provided document."
+    Always provide a justification for your answer by citing the relevant part of the context.
 
     Question: {question}
 
-    Answer:
+    Context:
+    {context_str}
+
+    Answer: [Your answer here]
+    Justification: [Cite the relevant part of the context here]
     """
 
     try:
         response = model.generate_content(
             prompt,
-            generation_config=genai.types.GenerationConfig(
-                temperature=0.2, # Lower temperature for more deterministic answers
-                max_output_tokens=max_output_tokens,
-            )
+            generation_config=genai.types.GenerationConfig(max_output_tokens=max_output_tokens)
         )
-        full_response_content = response.text.strip()
+        response_text = response.text
 
-        answer_text = ""
-        justification = "No specific justification found in the AI response." # Default justification
+        # Use regex to extract answer and justification
+        # Make the regex more robust to handle potential variations in spacing/newlines
+        answer_match = re.search(r"Answer:\s*(.*?)(?=\nJustification:|$)", response_text, re.DOTALL | re.IGNORECASE)
+        justification_match = re.search(r"Justification:\s*(.*)", response_text, re.DOTALL | re.IGNORECASE)
 
-        # Find the start of "Justification (Reference text from the document):" case-insensitively
-        justification_marker = "justification (reference text from the document):"
-        justification_idx = full_response_content.lower().find(justification_marker)
+        answer = answer_match.group(1).strip() if answer_match else ""
+        justification = justification_match.group(1).strip() if justification_match else ""
 
-        if justification_idx != -1:
-            # If the justification marker is found, everything before it is the answer
-            # and everything after is the justification.
-            answer_part = full_response_content[:justification_idx].strip()
-            justification_part = full_response_content[justification_idx + len(justification_marker):].strip()
+        # Fallback: If answer is empty but justification exists, try to use the full response text as answer
+        if not answer and justification:
+             # If the model didn't explicitly format an "Answer:", use the whole response as the answer
+             # and try to extract justification from it.
+            answer = response_text.replace(f"Justification: {justification}", "").strip()
+            if answer.lower().startswith("answer:"):
+                answer = answer[len("answer:"):].strip()
+            elif answer.lower().startswith("smart assistant:"): # Handle cases where Streamlit prepends this
+                answer = answer[len("smart assistant:"):].strip()
             
-            # Clean "Answer:" prefix from answer_part
-            if answer_part.lower().startswith("answer:"):
-                answer_text = answer_part[len("answer:"):].strip()
-            else:
-                answer_text = answer_part
-
-            justification = justification_part
-        else:
-            # If justification marker is not found, assume the whole response is the answer
-            # and try to extract a context reference from it (as a fallback)
-            raw_answer_content = full_response_content
-            if raw_answer_content.lower().startswith("answer:"):
-                raw_answer_content = raw_answer_content[len("answer:"):].strip()
-            
-            answer_text = raw_answer_content # Default answer text
-
-            # Fallback: Look for patterns like "(Document Chunk [X])" if model didn't follow instructions
-            context_ref_patterns = [
-                r'\(Document Chunk \[\d+\](?: and Document Chunk \[\d+\])*\)',
-                r'\(Context \[\d+\](?: and Context \[\d+\])*\)' 
-            ]
-            
-            for pattern in context_ref_patterns:
-                context_ref_in_answer_match = re.search(pattern, answer_text, re.IGNORECASE)
-                if context_ref_in_answer_match:
-                    extracted_ref = context_ref_in_answer_match.group(0)
-                    justification = f"This is supported by {extracted_ref.strip('()')}"
-                    answer_text = answer_text.replace(extracted_ref, "").strip()
-                    if answer_text.endswith('.'):
-                        answer_text = answer_text[:-1].strip()
-                    break 
-
-        # Final cleanup for any unwanted phrases in the answer text
-        answer_text = answer_text.replace("new line", "").strip() 
-        # Also remove any leftover "This is supported by Document Chunk [X]" if model put it despite instructions
-        answer_text = re.sub(r'\s*This is supported by Document Chunk \[.*?\]\.\s*$', '', answer_text, flags=re.IGNORECASE)
+        # Final fallback if both are still empty or unparsed
+        if not answer and not justification:
+             return response_text.strip(), "Could not parse specific justification from response."
 
 
-        return answer_text, justification
+        return answer, justification
 
     except Exception as e:
-        print(f"Error generating content with Gemini: {e}")
-        return "An error occurred while trying to generate a response. Please try again.", "No specific justification found in the AI response."
+        print(f"Error generating response with Gemini: {e}")
+        return "I encountered an error while trying to answer your question.", ""
 
 def generate_summary_with_gemini(text: str, max_words: int = 150) -> str:
     """
-    Generates a concise summary of the given text using the Gemini API.
+    Generates a concise summary of the provided text using the Gemini API.
 
     Args:
-        text (str): The input text to summarize.
+        text (str): The text to summarize.
         max_words (int): The maximum number of words for the summary.
 
     Returns:
-        str: The generated summary.
+        str: The generated summary. Returns an empty string if generation fails.
     """
+    if not text.strip():
+        return "No text provided to summarize."
+
     prompt = f"""
-    Summarize the following document content concisely, in no more than {max_words} words.
+    Summarize the following document concisely, in no more than {max_words} words.
     Focus on the main points and key information.
 
-    Document Content:
+    Document:
     {text}
 
     Summary:
     """
+
     try:
         response = model.generate_content(
             prompt,
-            generation_config=genai.types.GenerationConfig(
-                temperature=0.3,
-                max_output_tokens=int(max_words * 1.5)
-            )
+            generation_config=genai.types.GenerationConfig(max_output_tokens=max_words * 2) # Allow more tokens for summary generation
         )
-        return response.text.strip()
+        summary = response.text.strip()
+        # Optional: Truncate to exact word count if needed, though LLM should largely adhere
+        words = summary.split()
+        if len(words) > max_words:
+            summary = " ".join(words[:max_words]) + "..."
+        return summary
     except Exception as e:
         print(f"Error generating summary with Gemini: {e}")
-        return "Could not generate summary."
+        return "Could not generate a summary due to an error."
 
 if __name__ == '__main__':
-    print("--- Testing Ask Anything Mode ---")
+    # Dummy context for testing
     dummy_context = [
-        "The Amazon rainforest is the largest tropical rainforest in the world, renowned for its biodiversity.",
-        "It covers an area of about 5.5 million square kilometers, spanning nine countries.",
-        "Deforestation is a major threat to the Amazon, primarily driven by agriculture and logging.",
-        "Conservation efforts are crucial to protect its unique ecosystems and indigenous communities."
+        "Artificial intelligence (AI) is intelligence demonstrated by machines, unlike the natural intelligence displayed by humans and animals.",
+        "Leading AI textbooks define the field as the study of 'intelligent agents': any device that perceives its environment and takes actions that maximize its chance of successfully achieving its goals.",
+        "The term 'artificial intelligence' was coined by John McCarthy in 1956 at the Dartmouth Conference, which is considered the birth of AI as an academic field.",
+        "AI research has been defined as the field of study of 'intelligent agents', which refers to any device that perceives its environment and takes actions that maximize its chance of successfully achieving its goals.",
+        "Machine learning is a subset of AI that focuses on the development of algorithms that allow computers to learn from and make predictions or decisions on data.",
+        "Deep learning is a subset of machine learning that uses neural networks with many layers (deep neural networks) to analyze various factors of data."
     ]
-    question_1 = "What is the Amazon rainforest known for?"
-    answer_1, justification_1 = generate_response_with_gemini(question_1, dummy_context) 
-    print(f"\nQuestion: {question_1}")
+
+    print("--- Testing Question Answering ---")
+    question_1 = "What is Artificial Intelligence?"
+    answer_1, justification_1 = generate_response_with_gemini(question_1, dummy_context)
+    print(f"Question: {question_1}")
     print(f"Answer: {answer_1}")
     print(f"Justification: {justification_1}")
-    question_2 = "How big is the Amazon rainforest and which countries does it span?"
+
+    question_2 = "When was the term 'artificial intelligence' coined and by whom?"
     answer_2, justification_2 = generate_response_with_gemini(question_2, dummy_context)
     print(f"\nQuestion: {question_2}")
     print(f"Answer: {answer_2}")
     print(f"Justification: {justification_2}")
-    question_3 = "What is the capital of France?"
+
+    question_3 = "What is the capital of France?" # Irrelevant question
     answer_3, justification_3 = generate_response_with_gemini(question_3, dummy_context)
     print(f"\nQuestion: {question_3}")
     print(f"Answer: {answer_3}")
     print(f"Justification: {justification_3}")
+
     print("\n--- Testing Summary Generation ---")
     long_text_for_summary = """
     The history of artificial intelligence (AI) began in antiquity, with myths, stories and rumors of artificial beings endowed with intelligence or consciousness by master craftsmen. The seeds of modern AI were planted by classical philosophers who attempted to describe the process of human thinking as the mechanical manipulation of symbols. This work culminated in the invention of the programmable digital computer in the 1940s, a machine based on the abstract essence of mathematical reasoning. This device, and the foundational ideas behind AI, were proposed by Alan Turing, who is widely considered the father of AI. The field of AI research was founded at a conference at Dartmouth College in 1956.
     """
     summary = generate_summary_with_gemini(long_text_for_summary, max_words=50)
     print(f"\nOriginal Text:\n{long_text_for_summary}")
-    print(f"\nGenerated Summary (approx 50 words):\n{summary}")
+    print(f"Summary (max 50 words):\n{summary}")
+
+    short_text_for_summary = "This is a short sentence."
+    summary_short = generate_summary_with_gemini(short_text_for_summary, max_words=10)
+    print(f"\nOriginal Text:\n{short_text_for_summary}")
+    print(f"Summary (max 10 words):\n{summary_short}")
+
+    empty_text_for_summary = ""
+    summary_empty = generate_summary_with_gemini(empty_text_for_summary)
+    print(f"\nOriginal Text:\n'{empty_text_for_summary}'")
+    print(f"Summary (empty text):\n{summary_empty}")

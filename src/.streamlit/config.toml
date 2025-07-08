@@ -1,0 +1,27 @@
+[theme]
+# Primary color for buttons, links, etc.
+primaryColor="#4CAF50" # Green
+
+# Background color for the main content area
+backgroundColor="#f0f2f6" # Light gray
+
+# Background color for secondary elements like sidebar and input fields in light mode
+secondaryBackgroundColor="#ffffff" # White
+
+# Default text color in light mode
+textColor="#333333" # Dark gray
+
+# Font for the app
+font="sans serif"
+
+# Base theme (light or dark). Set to "light" for default light mode.
+# Streamlit's native toggle will switch between these defined colors.
+base="light" 
+
+# Dark theme overrides (Streamlit will automatically apply these when 'base' is 'dark'
+# or when the user switches to dark mode via the hamburger menu)
+[theme.dark]
+primaryColor="#66BB6A" # Slightly lighter green for dark mode primary
+backgroundColor="#1a1a2e" # Dark blue/purple for background
+secondaryBackgroundColor="#0f0f1a" # Even darker for sidebar/secondary
+textColor="#e0e0e0" # Light gray for text
