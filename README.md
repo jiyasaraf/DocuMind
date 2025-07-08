@@ -148,12 +148,6 @@ This will open the application in your web browser.
 ```
 
 
-### Need Help?
-
-- Check the [Issues](https://github.com/jiyasaraf/smart-document-assistant/issues) section for existing discussions
-- Feel free to ask questions in issue comments
-- For major changes, consider opening an issue first to discuss the approach
-
 
 ## Acknowledgements
 
