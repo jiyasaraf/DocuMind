@@ -1,4 +1,4 @@
-# DocuMind- Your document AI 📚
+# DocuMind- Your Doc AI 📚
 
 ## Overview
 
