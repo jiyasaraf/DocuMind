@@ -1,8 +1,8 @@
-# Smart Document Assistant 📚
+# DocuMind- Your document AI 📚
 
 ## Overview
 
-The Smart Document Assistant is an AI-powered interactive tool built with Streamlit that allows users to seamlessly interact with their documents. It leverages advanced Retrieval-Augmented Generation (RAG) techniques, Google's Gemini API, and a local ChromaDB instance to provide intelligent Q&A, comprehensive summarization, and an engaging "Challenge Me" quiz mode based on your uploaded content. This project aims to transform how you absorb information from lengthy documents by making it interactive and efficient.
+DocuMind is an AI-powered interactive tool built with Streamlit that allows users to seamlessly interact with their documents. It leverages advanced Retrieval-Augmented Generation (RAG) techniques, Google's Gemini API, and a local ChromaDB instance to provide intelligent Q&A, comprehensive summarization, and an engaging "Challenge Me" quiz mode based on your uploaded content. This project aims to transform how you absorb information from lengthy documents by making it interactive and efficient.
 
 ## Demo
 
